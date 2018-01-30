@@ -40,4 +40,3 @@ def state_machine(f, *args, **kwargs):
     kwargs = dict((k, v) for k, v in kwargs.items())
     status = f(*args, **kwargs)
     return status
-    

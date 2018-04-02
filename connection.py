@@ -110,7 +110,7 @@ class Connection(pxssh.pxssh):
         else:
             raise pxssh.ExceptionPxssh('Unable to reach host {}, make sure host is reachable!'.format(server))
 
-    def send(self, cmd, pattern=[], timeout=-1, attempt=1, regex=True):
+    def send(self, cmd, pattern=[], timeout=-1, attempt=1, regex=False):
         '''Overrides send from parent class, added ability to include expected
         patterns, expected timeout, retry attempts, and matching with/without
         regular expressions.
@@ -158,15 +158,16 @@ class Connection(pxssh.pxssh):
             super(Connection, self).send(cmd)
             if pattern:
                 try:
-                    super(Connection, self).expect(pattern, timeout=timeout)
+                    if regex:
+                        super(Connection, self).expect(pattern, timeout=timeout)
+                    else:
+                        super(Connection, self).expect_exact(pattern, timeout=timeout)
                     self.full_buffer = self.before + self.after + self.buffer
 
                     # Get output from the command sent, stripping the command
                     # and the prompt.
-                    self.output = re.sub(
-                        self.PROMPT, '', self.full_buffer.replace(cmd, '')
-                    ).strip()
-                    # print('1 match "{}"'.format(self.match.group(0)))
+                    self.output = re.sub(self.PROMPT, '', self.full_buffer.replace(cmd, '')).strip()
+                    # print('1 match "{}"'.format(self.match if isinstance(self.match, str) else self.match.group(0)))
                     # print('2 before "{}"'.format(self.before))
                     # print('3 after "{}"'.format(self.after))
                     # print('4 buffer "{}"'.format(self.buffer))

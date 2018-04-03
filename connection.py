@@ -89,26 +89,41 @@ class Connection(pxssh.pxssh):
         self, server, username, password='', terminal_type='ansi',
         original_prompt=r"[#$]", login_timeout=10, port=None,
         auto_prompt_reset=True, ssh_key=None, quiet=True,
-        sync_multiplier=1, check_local_ip=True,
+        sync_multiplier=1, check_local_ip=True, attempt=3,
     ):
         '''Overrides login from parent class, add to find the prompt after the
         ssh connection is established if auto_prompt_reset is set to False.
         Otherwise, login() function set the ssh prompt to '[PEXPECT]$' by
         default.
         '''
-        # Ping to make sure host is reachable before establish ssh connection
-        if '4 received' in run('ping -c4 {}'.format(server), timeout=10):
-            super(Connection, self).login(
-                server, username, password=password, terminal_type=terminal_type,
-                original_prompt=original_prompt, login_timeout=login_timeout,
-                port=port, auto_prompt_reset=auto_prompt_reset, ssh_key=ssh_key,
-                quiet=quiet, sync_multiplier=sync_multiplier,
-                check_local_ip=check_local_ip,
-            )
-            if not auto_prompt_reset:
-                self.PROMPT = self._get_prompt(original_prompt)
-        else:
-            raise pxssh.ExceptionPxssh('Unable to reach host {}, make sure host is reachable!'.format(server))
+        # Retry specified attempts before raising exception
+        for i in xrange(attempt):
+            # Set ping command and expected pattern
+            cmd = 'ping -c4 {}'.format(server)
+            pattern = '4 received'
+            if self.verbose:
+                if i == 0:
+                    print('{}/{} attempt :\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
+                else:
+                    print('{}/{} attempts:\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
+
+            # Ping to make sure host is reachable before establish ssh connection
+            if pattern in run(cmd, timeout=10):
+                super(Connection, self).login(
+                    server, username, password=password, terminal_type=terminal_type,
+                    original_prompt=original_prompt, login_timeout=login_timeout,
+                    port=port, auto_prompt_reset=auto_prompt_reset, ssh_key=ssh_key,
+                    quiet=quiet, sync_multiplier=sync_multiplier,
+                    check_local_ip=check_local_ip,
+                )
+                if not auto_prompt_reset:
+                    self.PROMPT = self._get_prompt(original_prompt)
+                break
+            else:
+                if i + 1 >= attempt:
+                    if self.verbose:
+                        print('Unable to reach host {}, make sure host is reachable!'.format(server))
+                    raise pxssh.ExceptionPxssh('Unable to reach host {}, make sure host is reachable!'.format(server))
 
     def send(self, cmd, pattern=[], timeout=-1, attempt=1, regex=False):
         '''Overrides send from parent class, added ability to include expected
@@ -149,12 +164,13 @@ class Connection(pxssh.pxssh):
         if attempt < 1:
             attempt = 1
 
+        # Retry specified attempts before raising exception
         for i in xrange(attempt):
             if self.verbose:
                 if i == 0:
-                    print('{}/{} attempt :\t{}\tpattern={}'.format(i + 1, attempt, cmd.strip(), pattern))
+                    print('{}/{} attempt :\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
                 else:
-                    print('{}/{} attempts:\t{}\tpattern={}'.format(i + 1, attempt, cmd.strip(), pattern))
+                    print('{}/{} attempts:\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
             super(Connection, self).send(cmd)
             if pattern:
                 try:

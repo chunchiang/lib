@@ -69,8 +69,8 @@ class Connection(pxssh.pxssh):
     def _get_prompt(self, partial_prompt):
         '''
         '''
-        self.send('\r', partial_prompt, timeout=3, attempt=3)
-        return self.output.strip()
+        self.send('\r', partial_prompt, timeout=3, attempt=3, regex=True)
+        return self.full_buffer.strip()
 
     def get_file_name_path(self, logpath, timestamp='', header='connection', extension='log'):
         '''Helper function to create a file name path with timestamp.
@@ -87,9 +87,12 @@ class Connection(pxssh.pxssh):
 
     def login(
         self, server, username, password='', terminal_type='ansi',
-        original_prompt=r"[#$]", login_timeout=10, port=None,
+        original_prompt=r'[#$]', login_timeout=10, port=None,
         auto_prompt_reset=True, ssh_key=None, quiet=True,
-        sync_multiplier=1, check_local_ip=True, attempt=3,
+        sync_multiplier=1, check_local_ip=True, 
+        password_regex=r'(?i)(?:password:)|(?:passphrase for key)',
+        ssh_tunnels={}, spawn_local_ssh=True,
+        sync_original_prompt=True, attempt=3,
     ):
         '''Overrides login from parent class, add to find the prompt after the
         ssh connection is established if auto_prompt_reset is set to False.
@@ -111,13 +114,15 @@ class Connection(pxssh.pxssh):
             if pattern in run(cmd, timeout=10):
                 super(Connection, self).login(
                     server, username, password=password, terminal_type=terminal_type,
-                    original_prompt=original_prompt, login_timeout=login_timeout,
-                    port=port, auto_prompt_reset=auto_prompt_reset, ssh_key=ssh_key,
-                    quiet=quiet, sync_multiplier=sync_multiplier,
-                    check_local_ip=check_local_ip,
+                    original_prompt=original_prompt, login_timeout=login_timeout, port=port,
+                    auto_prompt_reset=auto_prompt_reset, ssh_key=ssh_key, quiet=quiet,
+                    sync_multiplier=sync_multiplier, check_local_ip=check_local_ip,
+                    password_regex=password_regex,
+                    ssh_tunnels=ssh_tunnels, spawn_local_ssh=spawn_local_ssh,
+                    sync_original_prompt=sync_original_prompt,
                 )
-                if not auto_prompt_reset:
-                    self.PROMPT = self._get_prompt(original_prompt)
+                # Get prompt upon login and set it as default prompt
+                self.PROMPT = self._get_prompt(original_prompt)
                 break
             else:
                 if i + 1 >= attempt:
@@ -125,7 +130,7 @@ class Connection(pxssh.pxssh):
                         print('Unable to reach host {}, make sure host is reachable!'.format(server))
                     raise pxssh.ExceptionPxssh('Unable to reach host {}, make sure host is reachable!'.format(server))
 
-    def send(self, cmd, pattern=[], timeout=-1, attempt=1, regex=False):
+    def send(self, s, pattern=[], timeout=-1, attempt=1, regex=False, verbose=False):
         '''Overrides send from parent class, added ability to include expected
         patterns, expected timeout, retry attempts, and matching with/without
         regular expressions.
@@ -145,7 +150,7 @@ class Connection(pxssh.pxssh):
             self.output - output from the command excluding the command and the
                           prompt
 
-        :param - cmd
+        :param - s
         :param - pattern (default [])
         :param - timeout (default -1, when set to -1, it uses class default of
                  30s)
@@ -168,10 +173,10 @@ class Connection(pxssh.pxssh):
         for i in xrange(attempt):
             if self.verbose:
                 if i == 0:
-                    print('{}/{} attempt :\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
+                    print('{}/{} attempt :\t"{}"\tpattern="{}"'.format(i + 1, attempt, s.strip(), pattern))
                 else:
-                    print('{}/{} attempts:\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
-            super(Connection, self).send(cmd)
+                    print('{}/{} attempts:\t"{}"\tpattern="{}"'.format(i + 1, attempt, s.strip(), pattern))
+            super(Connection, self).send(s)
             if pattern:
                 try:
                     if regex:
@@ -180,27 +185,33 @@ class Connection(pxssh.pxssh):
                         super(Connection, self).expect_exact(pattern, timeout=timeout)
                     self.full_buffer = self.before + self.after + self.buffer
 
-                    # Get output from the command sent, stripping the command
-                    # and the prompt.
-                    self.output = re.sub(self.PROMPT, '', self.full_buffer.replace(cmd, '')).strip()
-                    # print('1 match "{}"'.format(self.match if isinstance(self.match, str) else self.match.group(0)))
-                    # print('2 before "{}"'.format(self.before))
-                    # print('3 after "{}"'.format(self.after))
-                    # print('4 buffer "{}"'.format(self.buffer))
-                    # print('5 output "{}"'.format(self.output))
-                    # print('6 full_buffer "{}"'.format(self.full_buffer))
+                    # Get output from the command sent, stripping the command and the prompt.
+                    self.output = self.full_buffer.replace(self.PROMPT, '').strip()
+                    if verbose:
+                        print('1 match "{}"'.format(self.match if isinstance(self.match, str) else self.match.group(0)))
+                        print('2 before "{}"'.format(self.before))
+                        print('3 after "{}"'.format(self.after))
+                        print('4 buffer "{}"'.format(self.buffer))
+                        print('5 output "{}"'.format(self.output))
+                        print('6 full_buffer "{}"'.format(self.full_buffer))
+                        print('7 prompt "{}"'.format(self.PROMPT))
                     break
                 except TIMEOUT:
                     self.full_buffer = self.buffer
 
-                    # Get output from the command sent, stripping the command
-                    # and the prompt.
-                    self.output = re.sub(self.PROMPT, '', self.full_buffer.replace(cmd, '')).strip()
-                    # print('1 buffer "{}"'.format(self.buffer))
-                    # print('2 output "{}"'.format(self.output))
-                    # print('3 full_buffer "{}"'.format(self.full_buffer))
+                    # Get output from the command sent, stripping the command and the prompt.
+                    self.output = self.full_buffer.replace(self.PROMPT, '').strip()
+                    if verbose:
+                        print('1 buffer "{}"'.format(self.buffer))
+                        print('2 output "{}"'.format(self.output))
+                        print('3 full_buffer "{}"'.format(self.full_buffer))
+                        print('4 prompt "{}"'.format(self.PROMPT))
                     if i + 1 >= attempt:
                         if self.verbose:
                             print('Raise TIMEOUT exception')
                         raise TIMEOUT(ExceptionPexpect)
         return self.match_index
+
+    def sendline(self, s='', pattern=[], timeout=-1, attempt=1, regex=False, verbose=False):
+        s = self._coerce_send_string(s)
+        return self.send(s=s+self.linesep, pattern=pattern, timeout=timeout, attempt=attempt, regex=regex, verbose=verbose)

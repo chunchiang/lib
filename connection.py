@@ -14,8 +14,10 @@ import datetime
 import os
 import re
 import sys
+
 from pexpect import pxssh, run
 from pexpect.exceptions import ExceptionPexpect, TIMEOUT
+from pexpect.pxssh import ExceptionPxssh
 
 PY3 = (sys.version_info[0] >= 3)
 text_type = str if PY3 else unicode
@@ -84,7 +86,7 @@ class Connection(pxssh.pxssh):
         file_name = '{timestamp}_{header}.{extension}'.format(header=header, timestamp=timestamp, extension=extension)
         full_path = os.path.join(logpath, file_name)
         return full_path
-
+        
     def login(
         self, server, username, password='', terminal_type='ansi',
         original_prompt=r'[#$]', login_timeout=10, port=None,
@@ -92,7 +94,8 @@ class Connection(pxssh.pxssh):
         sync_multiplier=1, check_local_ip=True, 
         password_regex=r'(?i)(?:password:)|(?:passphrase for key)',
         ssh_tunnels={}, spawn_local_ssh=True,
-        sync_original_prompt=True, attempt=3,
+        sync_original_prompt=True, ssh_config=None,
+        remove_known_hosts=False, attempt=3,
     ):
         '''Overrides login from parent class, add to find the prompt after the
         ssh connection is established if auto_prompt_reset is set to False.
@@ -112,6 +115,8 @@ class Connection(pxssh.pxssh):
 
             # Ping to make sure host is reachable before establish ssh connection
             if pattern in run(cmd, timeout=10):
+                if remove_known_hosts:
+                    run('rm {}'.format(os.path.expanduser('~/.ssh/known_hosts')), timeout=5)
                 super(Connection, self).login(
                     server, username, password=password, terminal_type=terminal_type,
                     original_prompt=original_prompt, login_timeout=login_timeout, port=port,
@@ -188,6 +193,7 @@ class Connection(pxssh.pxssh):
                     # Get output from the command sent, stripping the command and the prompt.
                     self.output = self.full_buffer.replace(self.PROMPT, '').strip()
                     if verbose:
+                        print('s "{}"'.format(s))
                         print('1 match "{}"'.format(self.match if isinstance(self.match, str) else self.match.group(0)))
                         print('2 before "{}"'.format(self.before))
                         print('3 after "{}"'.format(self.after))
@@ -202,6 +208,7 @@ class Connection(pxssh.pxssh):
                     # Get output from the command sent, stripping the command and the prompt.
                     self.output = self.full_buffer.replace(self.PROMPT, '').strip()
                     if verbose:
+                        print('s "{}"'.format(s))
                         print('1 buffer "{}"'.format(self.buffer))
                         print('2 output "{}"'.format(self.output))
                         print('3 full_buffer "{}"'.format(self.full_buffer))

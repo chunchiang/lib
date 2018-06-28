@@ -1,6 +1,12 @@
 '''all_loggers.py
 '''
 import logging
+import os
+import sys
+
+# Include the project package into the system path to allow import
+package_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, package_path)
 
 # Import your package (if any) below
 import dec

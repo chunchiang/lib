@@ -9,7 +9,6 @@ Please refer to the following link for documentation,
 https://pexpect.readthedocs.io/en/stable/
 
 '''
-from __future__ import print_function
 import datetime
 import os
 import re
@@ -95,7 +94,7 @@ class Connection(pxssh.pxssh):
         password_regex=r'(?i)(?:password:)|(?:passphrase for key)',
         ssh_tunnels={}, spawn_local_ssh=True,
         sync_original_prompt=True, ssh_config=None,
-        remove_known_hosts=False, attempt=3,
+        remove_known_hosts=False, ping_before_connect=True, attempt=3,
     ):
         '''Overrides login from parent class, add to find the prompt after the
         ssh connection is established if auto_prompt_reset is set to False.
@@ -104,17 +103,21 @@ class Connection(pxssh.pxssh):
         '''
         # Retry specified attempts before raising exception
         for i in xrange(attempt):
-            # Set ping command and expected pattern
-            cmd = 'ping -c4 {}'.format(server)
-            pattern = '4 received'
-            if self.verbose:
-                if i == 0:
-                    print('{}/{} attempt :\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
-                else:
-                    print('{}/{} attempts:\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
+            output = ''
+            pattern = ''
+            if ping_before_connect:
+                # Set ping command and expected pattern
+                cmd = 'ping -c4 {}'.format(server)
+                pattern = '4 received'
+                if self.verbose:
+                    if i == 0:
+                        print('{}/{} attempt :\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
+                    else:
+                        print('{}/{} attempts:\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
+                output = run(cmd, timeout=10)
 
             # Ping to make sure host is reachable before establish ssh connection
-            if pattern in run(cmd, timeout=10):
+            if pattern in output:
                 if remove_known_hosts:
                     run('rm {}'.format(os.path.expanduser('~/.ssh/known_hosts')), timeout=5)
                 super(Connection, self).login(
@@ -134,7 +137,7 @@ class Connection(pxssh.pxssh):
                     if self.verbose:
                         print('Unable to reach host {}, make sure host is reachable!'.format(server))
                     raise pxssh.ExceptionPxssh('Unable to reach host {}, make sure host is reachable!'.format(server))
-
+        
     def send(self, s, pattern=[], timeout=-1, attempt=1, regex=False, verbose=False):
         '''Overrides send from parent class, added ability to include expected
         patterns, expected timeout, retry attempts, and matching with/without

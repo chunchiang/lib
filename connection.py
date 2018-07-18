@@ -120,17 +120,24 @@ class Connection(pxssh.pxssh):
             if pattern in output:
                 if remove_known_hosts:
                     run('rm {}'.format(os.path.expanduser('~/.ssh/known_hosts')), timeout=5)
-                super(Connection, self).login(
-                    server, username, password=password, terminal_type=terminal_type,
-                    original_prompt=original_prompt, login_timeout=login_timeout, port=port,
-                    auto_prompt_reset=auto_prompt_reset, ssh_key=ssh_key, quiet=quiet,
-                    sync_multiplier=sync_multiplier, check_local_ip=check_local_ip,
-                    password_regex=password_regex,
-                    ssh_tunnels=ssh_tunnels, spawn_local_ssh=spawn_local_ssh,
-                    sync_original_prompt=sync_original_prompt,
-                )
-                # Get prompt upon login and set it as default prompt
-                self.PROMPT = self._get_prompt(original_prompt)
+                try:
+                    super(Connection, self).login(
+                        server, username, password=password, terminal_type=terminal_type,
+                        original_prompt=original_prompt, login_timeout=login_timeout, port=port,
+                        auto_prompt_reset=auto_prompt_reset, ssh_key=ssh_key, quiet=quiet,
+                        sync_multiplier=sync_multiplier, check_local_ip=check_local_ip,
+                        password_regex=password_regex,
+                        ssh_tunnels=ssh_tunnels, spawn_local_ssh=spawn_local_ssh,
+                        sync_original_prompt=sync_original_prompt,
+                    )
+                    # Get prompt upon login and set it as default prompt
+                    self.PROMPT = self._get_prompt(original_prompt)
+                except:
+                    if i + 1 >= attempt:
+                        if self.verbose:
+                            print('Unable to reach host {}, make sure host is reachable!'.format(server))
+                        raise pxssh.ExceptionPxssh('Unable to reach host {}, make sure host is reachable!'.format(server))
+                    continue
                 break
             else:
                 if i + 1 >= attempt:

@@ -1,4 +1,4 @@
-'''This class inherits from pexpect with enhancements for our specific use.
+'''This module provides expect like capability.
 
 Please refer to the following link for source code,
 
@@ -8,6 +8,11 @@ Please refer to the following link for documentation,
 
 https://pexpect.readthedocs.io/en/stable/
 
+Prerequisites:
+    - This module is tested on Python 2.7.12 and is compatible with python 2.7
+      or later.
+    - requests needs to be installed.
+    - xmltodict needs to be installed.    
 '''
 import datetime
 import os
@@ -23,6 +28,8 @@ text_type = str if PY3 else unicode
 
 
 class Connection(pxssh.pxssh):
+    '''This class inherits from pexpect with enhancements for our specific use.
+    '''
     def __init__(
         self, timeout=30, maxread=2000, searchwindowsize=None,
         logfile=None, cwd=None, env=None, ignore_sighup=True, echo=True,
@@ -68,8 +75,7 @@ class Connection(pxssh.pxssh):
                 static_logfile.flush()
 
     def _get_prompt(self, partial_prompt):
-        '''
-        '''
+        '''Get the prompt of the connected system.'''
         self.send('\r', partial_prompt, timeout=3, attempt=3, regex=True)
         return self.full_buffer.strip()
 
@@ -101,6 +107,8 @@ class Connection(pxssh.pxssh):
         Otherwise, login() function set the ssh prompt to '[PEXPECT]$' by
         default.
         '''
+        is_logged_in = False
+        
         # Retry specified attempts before raising exception
         for i in xrange(attempt):
             output = ''
@@ -121,7 +129,7 @@ class Connection(pxssh.pxssh):
                 if remove_known_hosts:
                     run('rm {}'.format(os.path.expanduser('~/.ssh/known_hosts')), timeout=5)
                 try:
-                    super(Connection, self).login(
+                    is_logged_in = super(Connection, self).login(
                         server, username, password=password, terminal_type=terminal_type,
                         original_prompt=original_prompt, login_timeout=login_timeout, port=port,
                         auto_prompt_reset=auto_prompt_reset, ssh_key=ssh_key, quiet=quiet,
@@ -144,6 +152,7 @@ class Connection(pxssh.pxssh):
                     if self.verbose:
                         print('Unable to reach host {}, make sure host is reachable!'.format(server))
                     raise pxssh.ExceptionPxssh('Unable to reach host {}, make sure host is reachable!'.format(server))
+        return is_logged_in
         
     def send(self, s, pattern=[], timeout=-1, attempt=1, regex=False, verbose=False):
         '''Overrides send from parent class, added ability to include expected
@@ -230,5 +239,6 @@ class Connection(pxssh.pxssh):
         return self.match_index
 
     def sendline(self, s='', pattern=[], timeout=-1, attempt=1, regex=False, verbose=False):
+        '''Send command and append line feed at the end.'''
         s = self._coerce_send_string(s)
         return self.send(s=s+self.linesep, pattern=pattern, timeout=timeout, attempt=attempt, regex=regex, verbose=verbose)

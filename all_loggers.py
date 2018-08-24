@@ -9,13 +9,10 @@ package_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, package_path)
 
 # Import your package (if any) below
-import dec
-
 
 log = logging.getLogger(__name__)
 
 
-@dec.time_elapsed
 def addHandlerToAllLoggers(handler):
     '''Add handler to all loggers in the logging module.
 
@@ -33,7 +30,6 @@ def addHandlerToAllLoggers(handler):
             pass
 
 
-@dec.time_elapsed
 def setLevelToAllLoggers(level):
     '''Set level to all loggers in the logging module.
 

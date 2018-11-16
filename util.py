@@ -21,6 +21,11 @@ def add_python_packages(package_path):
     reload(site)
     
     
+def whoami():
+    '''Return the current def name.'''
+    return sys._getframe(1).f_code.co_name
+
+
 def is_int(s):
     '''Check if string is an integer.'''
     try: 

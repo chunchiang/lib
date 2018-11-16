@@ -18,7 +18,7 @@ def addHandlerToAllLoggers(handler):
     # Add self first, in case logging is needed
     logging.Logger.manager.loggerDict[__name__].addHandler(handler)
 
-    for logger_name, logger in logging.Logger.manager.loggerDict.iteritems():
+    for logger_name, logger in logging.Logger.manager.loggerDict.items():
         try:
             logger.addHandler(handler)
         except AttributeError:
@@ -32,7 +32,7 @@ def setLevelToAllLoggers(level):
     It is useful when trying to log using the same handle across modules that
     are unrelated (ie.  Modules are in different hierarchy from one another).
     '''
-    for logger_name, logger in logging.Logger.manager.loggerDict.iteritems():
+    for logger_name, logger in logging.Logger.manager.loggerDict.items():
         try:
             logger.setLevel(level)
         except AttributeError:

@@ -34,7 +34,7 @@ class Connection(pxssh.pxssh):
         self, timeout=30, maxread=2000, searchwindowsize=None,
         logfile=None, cwd=None, env=None, ignore_sighup=True, echo=True,
         options={}, encoding=None, codec_errors='strict', static_logpath=None,
-        verbose=None,
+        static_logfilename=None, verbose=None,
     ):
         '''
         '''
@@ -52,7 +52,7 @@ class Connection(pxssh.pxssh):
                 static_logpath = os.path.expanduser(static_logpath)
             if not os.path.exists(static_logpath):
                 os.makedirs(static_logpath)
-            self._static_logfile = self.get_file_name_path(static_logpath)
+            self._static_logfile = self.get_file_name_path(static_logpath, static_logfilename)
 
         self.verbose = verbose
         self.full_buffer = None
@@ -79,16 +79,16 @@ class Connection(pxssh.pxssh):
         self.send('\r', partial_prompt, timeout=3, attempt=3, regex=True)
         return self.full_buffer.strip()
 
-    def get_file_name_path(self, logpath, timestamp='', header='connection', extension='log'):
+    def get_file_name_path(self, logpath, logfilename='', header='connection', extension='log'):
         '''Helper function to create a file name path with timestamp.
 
         Helper function to create a file name path with timestamp to save
         debug info like screen shots.  No file is created only the path is
         assembled here.
         '''
-        if not timestamp:
-            timestamp = datetime.datetime.now().isoformat().replace(':', '').replace('-', '').replace('.', '')
-        file_name = '{timestamp}_{header}.{extension}'.format(header=header, timestamp=timestamp, extension=extension)
+        if not logfilename:
+            logfilename = datetime.datetime.now().isoformat().replace(':', '').replace('-', '').replace('.', '')
+        file_name = '{logfilename}_{header}.{extension}'.format(header=header, logfilename=logfilename, extension=extension)
         full_path = os.path.join(logpath, file_name)
         return full_path
         

@@ -7,23 +7,28 @@ https://github.com/pexpect/pexpect
 Please refer to the following link for documentation,
 
 https://pexpect.readthedocs.io/en/stable/
+https://pexpect.readthedocs.io/en/stable/_modules/index.html
 
 Prerequisites:
-    - This module is tested on Python 2.7.12 and is compatible with python 2.7
-      or later.
+    - This module is compatible with python 2.7+ and python 3.7+.
     - pexpect needs to be installed.
 '''
 import datetime
+import logging
 import os
 import re
 import sys
 
-from pexpect import pxssh, run
-from pexpect.exceptions import ExceptionPexpect, TIMEOUT
-from pexpect.pxssh import ExceptionPxssh
+from pexpect import pxssh, run, spawn
+from pexpect.exceptions import ExceptionPexpect, TIMEOUT, EOF
 
 PY3 = (sys.version_info[0] >= 3)
 text_type = str if PY3 else unicode
+log = logging.getLogger(__name__)
+
+# Add custom log level
+CONSOLE = 15
+logging.addLevelName(CONSOLE, 'CONSOLE')
 
 
 class Connection(pxssh.pxssh):
@@ -33,10 +38,12 @@ class Connection(pxssh.pxssh):
         self, timeout=30, maxread=2000, searchwindowsize=None,
         logfile=None, cwd=None, env=None, ignore_sighup=True, echo=True,
         options={}, encoding=None, codec_errors='strict', static_logpath=None,
-        static_logfilename=None, verbose=None,
+        static_logfile_prefix=None, verbose=None,
     ):
-        '''
-        '''
+        # Set default encoding to 'utf-8' for python3 before calling super.__init__()
+        if not encoding and PY3:
+            encoding = 'utf-8'
+        
         super(Connection, self).__init__(
             timeout=timeout, maxread=maxread,
             searchwindowsize=searchwindowsize, logfile=logfile, cwd=cwd,
@@ -51,7 +58,7 @@ class Connection(pxssh.pxssh):
                 static_logpath = os.path.expanduser(static_logpath)
             if not os.path.exists(static_logpath):
                 os.makedirs(static_logpath)
-            self._static_logfile = self.get_file_name_path(static_logpath, static_logfilename)
+            self._static_logfile = self.get_file_name_path(static_logpath, static_logfile_prefix)
 
         self.verbose = verbose
         self.full_buffer = None
@@ -68,11 +75,22 @@ class Connection(pxssh.pxssh):
         function.  The purpose for _static_logfile is to keep a timestamped log
         independent from the logfile user specified.
         '''
-        super(Connection, self)._log(s, direction)
-        if self._static_logfile and direction == 'read':
-            with open(self._static_logfile, 'ab') as static_logfile:
-                static_logfile.write(s)
-                static_logfile.flush()
+        # Create bytes and string representation of s
+        # b = s
+        # if type(s) == str:
+            # b = s.encode('utf-8')
+        # elif type(s) == bytes:
+            # s = s.decode('utf-8')
+        super(Connection, self)._log(s, direction)  # Seems pexpect is expecting to write log as string
+        if direction == 'read':
+            if self._static_logfile:
+                with open(self._static_logfile, 'a') as static_logfile:
+                    static_logfile.write(s)
+                    static_logfile.flush()
+
+            # Write to python custom log level
+            # This is not used currently because it does not show very well in python log.
+            # log.log(CONSOLE, s)
 
     def _get_prompt(self, partial_prompt):
         '''Get the prompt of the connected system.'''
@@ -93,64 +111,99 @@ class Connection(pxssh.pxssh):
         return full_path
 
     def login(
-        self, server, username, password='', terminal_type='ansi',
+        self, server='', username='', password='', terminal_type='ansi',
         original_prompt=r'[#$]', login_timeout=10, port=None,
         auto_prompt_reset=True, ssh_key=None, quiet=True,
         sync_multiplier=1, check_local_ip=True,
         password_regex=r'(?i)(?:password:)|(?:passphrase for key)',
         ssh_tunnels={}, spawn_local_ssh=True,
         sync_original_prompt=True, ssh_config=None,
-        remove_known_hosts=False, ping_before_connect=True, attempt=3,
+        remove_known_hosts=False, ping_before_connect=True, attempt=1,
     ):
         '''Overrides login from parent class, add to find the prompt after the
         ssh connection is established if auto_prompt_reset is set to False.
         Otherwise, login() function set the ssh prompt to '[PEXPECT]$' by
         default.
         '''
-        # Retry specified attempts before raising exception
-        for i in range(attempt):
-            output = ''
-            pattern = ''
-            if ping_before_connect:
-                # Set ping command and expected pattern
-                cmd = 'ping -c4 {}'.format(server)
-                pattern = '4 received'
-                if self.verbose:
-                    if i == 0:
-                        print('{}/{} attempt :\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
-                    else:
-                        print('{}/{} attempts:\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
-                output = run(cmd, timeout=10)
+        self.is_logged_in = False
 
-            # Ping to make sure host is reachable before establish ssh connection
-            if pattern in output:
-                if remove_known_hosts:
-                    run('rm {}'.format(os.path.expanduser('~/.ssh/known_hosts')), timeout=5)
-                try:
-                    if not self.is_logged_in:
-                        self.is_logged_in = super(Connection, self).login(
-                            server, username, password=password, terminal_type=terminal_type,
-                            original_prompt=original_prompt, login_timeout=login_timeout, port=port,
-                            auto_prompt_reset=auto_prompt_reset, ssh_key=ssh_key, quiet=quiet,
-                            sync_multiplier=sync_multiplier, check_local_ip=check_local_ip,
-                            password_regex=password_regex,
-                            ssh_tunnels=ssh_tunnels, spawn_local_ssh=spawn_local_ssh,
-                            sync_original_prompt=sync_original_prompt, ssh_config=ssh_config,
-                        )
-                        # Get prompt upon login and set it as default prompt
-                        self.PROMPT = self._get_prompt(original_prompt)
-                except:
-                    if i + 1 >= attempt:
-                        if self.verbose:
-                            print('Unable to reach host {}, make sure host is reachable!'.format(server))
-                        raise pxssh.ExceptionPxssh('Unable to reach host {}, make sure host is reachable!'.format(server))
-                    continue
-                break
-            else:
-                if i + 1 >= attempt:
+        # Try connecting to the server if server is specified
+        if server:
+            # Retry specified attempts before raising exception
+            for i in range(attempt):
+                output = ''
+                pattern = ''
+                self.pid = None  # Set pid to None to avoid AssertionError: The pid member must be None.
+                if ping_before_connect:
+                    # Set ping command and expected pattern
+                    cmd = 'ping -c4 {}'.format(server)
+                    pattern = '4 received'
                     if self.verbose:
-                        print('Unable to reach host {}, make sure host is reachable!'.format(server))
-                    raise pxssh.ExceptionPxssh('Unable to reach host {}, make sure host is reachable!'.format(server))
+                        if i == 0:
+                            log.debug('{}/{} attempt :\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
+                        else:
+                            log.debug('{}/{} attempts:\t"{}"\tpattern="{}"'.format(i + 1, attempt, cmd.strip(), pattern))
+                    output = run(cmd, timeout=10, encoding=self.encoding)
+                    # output = run(cmd, timeout=10).decode('utf-8')
+
+                # Ping to make sure host is reachable before establish ssh connection
+                if pattern in output:
+                    if remove_known_hosts:
+                        run('rm {}'.format(os.path.expanduser('~/.ssh/known_hosts')), timeout=5, encoding=self.encoding)
+                    try:
+                        if not self.is_logged_in:
+                            self.is_logged_in = super(Connection, self).login(
+                                server, username, password=password, terminal_type=terminal_type,
+                                original_prompt=original_prompt, login_timeout=login_timeout, port=port,
+                                auto_prompt_reset=auto_prompt_reset, ssh_key=ssh_key, quiet=quiet,
+                                sync_multiplier=sync_multiplier, check_local_ip=check_local_ip,
+                                password_regex=password_regex,
+                                ssh_tunnels=ssh_tunnels, spawn_local_ssh=spawn_local_ssh,
+                                sync_original_prompt=sync_original_prompt, ssh_config=ssh_config,
+                            )
+                            # Get prompt upon login and set it as default prompt
+                            self.PROMPT = self._get_prompt(original_prompt)
+                    except:
+                        if i + 1 >= attempt:
+                            # if self.verbose:
+                                # print('Unable to reach host {}, make sure host is reachable!'.format(server))
+                            # raise pxssh.ExceptionPxssh('Unable to reach host {}, make sure host is reachable!'.format(server))
+                            # import traceback
+                            # traceback.print_exc()
+                            log.exception('Unable to reach host {}, make sure host is reachable!'.format(server))
+                        continue
+                    break
+                else:
+                    if i + 1 >= attempt:
+                        # if self.verbose:
+                            # print('Unable to reach host {}, make sure host is reachable!'.format(server))
+                        # raise pxssh.ExceptionPxssh('Unable to reach host {}, make sure host is reachable!'.format(server))
+                        # import traceback
+                        # traceback.print_exc()
+                        log.warning('Unable to reach host {}, make sure host is reachable!'.format(server))
+        # If server not specified, just run an instance of bash shell
+        # Note: Useing ssh to localhost above would work in most cases, but in
+        # the case where the login credential is not known, such as running in
+        # another organization's environment.
+        else:
+            if remove_known_hosts:
+                run('rm {}'.format(os.path.expanduser('~/.ssh/known_hosts')), timeout=5, encoding=self.encoding)
+
+            # TODO: Try to detect and spawn the current running shell
+            # current_shell = run('echo $0', timeout=10, encoding=self.encoding)
+            # log.debug('Current shell: {}'.format(current_shell))
+            spawn._spawn(self, 'bash')
+            self.expect(original_prompt)
+            
+            # cd to home directory to ensure local session starts in the same
+            # directory as ssh session, since bash does not change directory
+            # when start a new session.
+            self.sendline('cd', original_prompt, timeout=5, regex=True)
+            self.is_logged_in = True
+            
+            # Get prompt upon login and set it as default prompt
+            self.PROMPT = self._get_prompt(original_prompt)
+        
         return self.is_logged_in
 
     def send(self, s, pattern=[], timeout=-1, attempt=1, regex=False, verbose=False):
@@ -192,13 +245,20 @@ class Connection(pxssh.pxssh):
         if attempt < 1:
             attempt = 1
 
+        # Create bytes and string representation of s
+        # b = s
+        # if type(s) == str:
+            # b = s.encode('utf-8')
+        # elif type(s) == bytes:
+            # s = s.decode('utf-8')
+
         # Retry specified attempts before raising exception
         for i in range(attempt):
-            if self.verbose:
+            if verbose:
                 if i == 0:
-                    print('{}/{} attempt :\t"{}"\tpattern="{}"'.format(i + 1, attempt, s.strip(), pattern))
+                    log.log(CONSOLE, '{}/{} attempt :\t"{}"\tpattern="{}"'.format(i + 1, attempt, s.strip(), pattern))
                 else:
-                    print('{}/{} attempts:\t"{}"\tpattern="{}"'.format(i + 1, attempt, s.strip(), pattern))
+                    log.log(CONSOLE, '{}/{} attempts:\t"{}"\tpattern="{}"'.format(i + 1, attempt, s.strip(), pattern))
             super(Connection, self).send(s)
             if pattern:
                 try:
@@ -207,40 +267,52 @@ class Connection(pxssh.pxssh):
                     else:
                         super(Connection, self).expect_exact(pattern, timeout=timeout)
 
-                    # For python3, the buffer read is byte type and need to be converted to string type
-                    # Reference: https://stackoverflow.com/questions/606191/convert-bytes-to-a-string/
-                    # This implementation is backward compatible with python2
-                    self.full_buffer = self.before.decode('utf8') + self.after.decode('utf8') + self.buffer.decode('utf8')
-
-                    # Get output from the command sent, stripping the command and the prompt.
-                    self.output = self.full_buffer.replace(self.PROMPT, '').strip()
+                    if isinstance(self.after, str):
+                        # For python3, the buffer read is byte type and need to be converted to string type
+                        # Reference: https://stackoverflow.com/questions/606191/convert-bytes-to-a-string/
+                        # This implementation is backward compatible with python2
+                        # self.full_buffer = self.before.decode('utf-8') + self.after.decode('utf-8') + self.buffer.decode('utf-8')
+                        self.full_buffer = self.before + self.after + self.buffer
+                        self.output = self.full_buffer
+                        if '\n' in self.output:
+                            self.output = self.output.rsplit('\n', 1)[0]  # Remove the last line (contains prompt) from output
+                        self.output = self.output.replace(s.strip(), '', 1).replace('\n', '', 1).replace('\r', '', 1)  # Remove the first line (contains command s) from full buffer
                     if verbose:
-                        print('s "{}"'.format(s))
-                        print('1 match "{}"'.format(self.match if isinstance(self.match, str) else self.match.group(0)))
-                        print('2 before "{}"'.format(self.before))
-                        print('3 after "{}"'.format(self.after))
-                        print('4 buffer "{}"'.format(self.buffer))
-                        print('5 output "{}"'.format(self.output))
-                        print('6 full_buffer "{}"'.format(self.full_buffer))
-                        print('7 prompt "{}"'.format(self.PROMPT))
+                        log.debug('s "{}"'.format(s))
+                        log.debug('1 match "{}"'.format(self.match if isinstance(self.match, str) else self.match.group(0)))
+                        log.debug('2 before "{}"'.format(self.before))
+                        log.debug('3 after "{}"'.format(self.after))
+                        log.debug('4 buffer "{}"'.format(self.buffer))
+                        log.debug('5 output "{}"'.format(self.output))
+                        log.debug('6 full_buffer "{}"'.format(self.full_buffer))
+                        log.debug('7 prompt "{}"'.format(self.PROMPT))
                     break
                 except TIMEOUT:
-                    # For python3, the buffer read is byte type and need to be converted to string type
-                    # Reference: https://stackoverflow.com/questions/606191/convert-bytes-to-a-string
-                    # This implementation is backward compatible with python2
-                    self.full_buffer = self.buffer.decode('utf8')
-
-                    # Get output from the command sent, stripping the command and the prompt.
-                    self.output = self.full_buffer.replace(self.PROMPT, '').strip()
+                    if isinstance(self.buffer, str):
+                        # For python3, the buffer read is byte type and need to be converted to string type
+                        # Reference: https://stackoverflow.com/questions/606191/convert-bytes-to-a-string
+                        # This implementation is backward compatible with python2
+                        # self.full_buffer = self.buffer.decode('utf-8')
+                        self.full_buffer = self.buffer
+                        self.output = self.full_buffer
+                        if '\n' in self.output:
+                            self.output = self.output.rsplit('\n', 1)[0]  # Remove the last line (contains prompt) from output
+                        self.output = self.output.replace(s.strip(), '', 1).replace('\n', '', 1).replace('\r', '', 1)  # Remove the first line (contains command s) from full buffer
                     if verbose:
-                        print('s "{}"'.format(s))
-                        print('1 buffer "{}"'.format(self.buffer))
-                        print('2 output "{}"'.format(self.output))
-                        print('3 full_buffer "{}"'.format(self.full_buffer))
-                        print('4 prompt "{}"'.format(self.PROMPT))
+                        log.debug('s "{}"'.format(s))
+                        # log.debug('1 match "{}"'.format(self.match if isinstance(self.match, str) else self.match.group(0)))
+                        log.debug('2 before "{}"'.format(self.before))
+                        log.debug('3 after "{}"'.format(self.after))
+                        log.debug('4 buffer "{}"'.format(self.buffer))
+                        log.debug('5 output "{}"'.format(self.output))
+                        # log.debug('6 full_buffer "{}"'.format(self.full_buffer))
+                        # log.debug('7 prompt "{}"'.format(self.PROMPT))
                     if i + 1 >= attempt:
                         if self.verbose:
-                            print('Raise TIMEOUT exception')
+                            if i == 0:
+                                log.exception('Raise TIMEOUT exception after {} attempt'.format(attempt))
+                            else:
+                                log.exception('Raise TIMEOUT exception after {} attempts'.format(attempt))
                         raise TIMEOUT(ExceptionPexpect)
         return self.match_index
 
